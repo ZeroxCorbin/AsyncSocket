@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Text;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace AsyncSocket
 {
@@ -14,7 +15,7 @@ namespace AsyncSocket
         // Client socket.  
         //public Socket workSocket = null;
         // Size of receive buffer.  
-        public const int BufferSize = 1024;
+        public const int BufferSize = 4096;
         // Receive buffer.  
         public byte[] buffer = new byte[BufferSize];
         // Received data string.  
@@ -226,21 +227,26 @@ namespace AsyncSocket
                 HandleException(e);
             }
         }
-        public byte[] Receive(bool waitForData)
+
+        public string Receive(int timeout)
         {
             if (!IsConnected) return null;
 
+            Stopwatch stop = new Stopwatch();
+            stop.Restart();
             try
             {
                 byte[] byteData = new byte[1024];
+                int readBytes;
 
-                while (waitForData)
+                while (stop.ElapsedMilliseconds < timeout )
                 {
-                    if (client.Receive(byteData) > 0)
-                        break;
+                    if (client.Available > 0)
+                        if ((readBytes = client.Receive(byteData)) > 0)
+                            return System.Text.Encoding.UTF8.GetString(byteData, 0, readBytes);
                 }
 
-                return byteData;
+                return "";
             }
             catch (Exception e)
             {
@@ -248,6 +254,47 @@ namespace AsyncSocket
                 return null;
             }
         }
+
+        public string Receive(int timeout, string terminator)
+        {
+            if (!IsConnected) return null;
+
+            Stopwatch stop = new Stopwatch();
+            stop.Restart();
+            try
+            {
+                byte[] byteData = new byte[4098];
+                StringBuilder sb = new StringBuilder();
+                int bytesRead;
+                while (stop.ElapsedMilliseconds < timeout)
+                {
+                    if (client.Available > 0)
+                    {
+                        //Array.Clear(byteData, 0, byteData.Length);
+                        if ((bytesRead = client.Receive(byteData)) > 0)
+                        {
+                            stop.Restart();
+
+                            sb.Append(Encoding.ASCII.GetString(byteData, 0, bytesRead));
+
+                            if (sb.ToString().EndsWith(terminator))
+                                break;
+                        }
+                    }
+                    else
+                        Thread.Sleep(10);
+                            
+                }
+
+                return sb.ToString();
+            }
+            catch (Exception e)
+            {
+                HandleException(e);
+                return null;
+            }
+        }
+
 
         public void Send(String data)
         {
