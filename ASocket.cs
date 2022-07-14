@@ -228,6 +228,33 @@ namespace AsyncSocket
             }
         }
 
+        public byte[] ReceiveBytes(int timeout)
+        {
+            if (!IsConnected) return null;
+
+            Stopwatch stop = new Stopwatch();
+            stop.Restart();
+            try
+            {
+                byte[] byteData = new byte[1024];
+                int readBytes;
+
+                while (stop.ElapsedMilliseconds < timeout)
+                {
+                    if (client.Available > 0)
+                        if ((readBytes = client.Receive(byteData)) > 0)
+                            return byteData;
+                }
+
+                return byteData;
+            }
+            catch (Exception e)
+            {
+                HandleException(e);
+                return null;
+            }
+        }
+
         public string Receive(int timeout)
         {
             if (!IsConnected) return null;
