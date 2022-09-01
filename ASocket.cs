@@ -71,6 +71,8 @@ namespace AsyncSocket
 
                 _ = connectResult.AsyncWaitHandle.WaitOne(timeout, true);
 
+                if (client == null)  return false;
+
                 if (client.Connected)
                 {
                     client.EndConnect(connectResult);
