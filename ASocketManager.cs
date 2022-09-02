@@ -75,13 +75,15 @@ namespace AsyncSocket
                 {
                     Regex reg = new Regex($"{StartRegexPattern}(?s)(.*?){EndRegexPattern}");
 
+                    bool found = false;
                     foreach (Match match in reg.Matches(ReceiveData.ToString()))
                     {
                         MessageEvent?.Invoke(match.Value, null);
+                        found = true;
                     }
 
                     //This needs to be handled better. Could be clearing partial messages.
-                    ReceiveData.Clear();
+                    if (found) ReceiveData.Clear();
                 }
 
             }
