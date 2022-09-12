@@ -42,11 +42,11 @@ namespace AsyncSocket
 
         object ReceiveLock = new object();
 
-        private void ASocketManager_ReceiveEvent(object sender, EventArgs e)
+        private void ASocketManager_ReceiveEvent(byte[] buffer, string msg)
         {
             lock (ReceiveLock)
             {
-                ReceiveData.Append((string)sender);
+                ReceiveData.Append(msg);
 
                 if (!UseRegex)
                 {

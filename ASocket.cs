@@ -26,9 +26,12 @@ namespace AsyncSocket
         public bool IsConnected { get; private set; } = false;
         public bool IsReceiving { get; private set; } = false;
 
-        public event EventHandler ConnectEvent;
-        public event EventHandler CloseEvent;
-        public event EventHandler ReceiveEvent;
+        public delegate void SimpleDelegate();
+        public delegate void ReceiveEventDelegate(byte[] buffer, string msg);
+
+        public event SimpleDelegate ConnectEvent;
+        public event SimpleDelegate CloseEvent;
+        public event ReceiveEventDelegate ReceiveEvent;
         public event EventHandler ExceptionEvent;
 
         private Socket client;
@@ -71,7 +74,7 @@ namespace AsyncSocket
 
                 _ = connectResult.AsyncWaitHandle.WaitOne(timeout, true);
 
-                if (client == null)  return false;
+                if (client == null) return false;
 
                 if (client.Connected)
                 {
@@ -79,7 +82,7 @@ namespace AsyncSocket
 
                     IsConnected = true;
 
-                    Task.Run(() => ConnectEvent?.Invoke(null, null));
+                    Task.Run(() => ConnectEvent?.Invoke());
 
                     return true;
                 }
@@ -110,7 +113,7 @@ namespace AsyncSocket
             client = null;
 
             if (!noEvent)
-                CloseEvent?.Invoke(null, null);
+                CloseEvent?.Invoke();
         }
 
         public void StartConnect(string host, int port) => StartConnect(new ASocketSettings($"{host}:{port}"));
@@ -155,7 +158,7 @@ namespace AsyncSocket
 
                 // Signal that the connection has been made.
                 IsConnected = true;
-                Task.Run(() => ConnectEvent?.Invoke(null, null));
+                Task.Run(() => ConnectEvent?.Invoke());
             }
             catch (Exception e)
             {
@@ -205,9 +208,10 @@ namespace AsyncSocket
                     IsReceiving = true;
 
                     string msg = Encoding.ASCII.GetString(state.buffer, 0, bytesRead);
-                    Array.Clear(state.buffer, 0, StateObject.BufferSize);
 
-                    ReceiveEvent?.Invoke(msg, null);
+                    ReceiveEvent?.Invoke(state.buffer, msg);
+
+                    Array.Clear(state.buffer, 0, StateObject.BufferSize);
 
                     // Get the rest of the data.  
                     client?.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
