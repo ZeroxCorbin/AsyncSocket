@@ -1,10 +1,10 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
-using System.Diagnostics;
 
 namespace AsyncSocket
 {
@@ -54,7 +54,7 @@ namespace AsyncSocket
 
             Close();
 
-            Task.Run(() => ExceptionEvent?.Invoke(e, null));
+            _ = Task.Run(() => ExceptionEvent?.Invoke(e, null));
         }
 
         public bool Connect(string host, int port, int timeout = 5000) => Connect(new ASocketSettings($"{host}:{port}"), timeout);
@@ -64,13 +64,13 @@ namespace AsyncSocket
 
             try
             {
-                IPEndPoint remoteEP = new IPEndPoint(settings.IPAddress, settings.Port);
+                var remoteEP = new IPEndPoint(settings.IPAddress, settings.Port);
 
                 // Create a TCP/IP socket.  
                 client = new System.Net.Sockets.Socket(settings.IPAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
                 // Connect to the remote endpoint.  
-                IAsyncResult connectResult = client.BeginConnect(remoteEP, null, null);
+                var connectResult = client.BeginConnect(remoteEP, null, null);
 
                 _ = connectResult.AsyncWaitHandle.WaitOne(timeout, true);
 
@@ -82,7 +82,7 @@ namespace AsyncSocket
 
                     IsConnected = true;
 
-                    Task.Run(() => ConnectEvent?.Invoke());
+                    _ = Task.Run(() => ConnectEvent?.Invoke());
 
                     return true;
                 }
@@ -96,7 +96,6 @@ namespace AsyncSocket
                 HandleException(e);
                 return false;
             }
-
         }
         public void Close(bool noEvent = false)
         {
@@ -121,7 +120,7 @@ namespace AsyncSocket
         {
             Close();
 
-            IPEndPoint remoteEP = new IPEndPoint(settings.IPAddress, settings.Port);
+            var remoteEP = new IPEndPoint(settings.IPAddress, settings.Port);
 
             // Create a TCP/IP socket.  
             client = new System.Net.Sockets.Socket(settings.IPAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -158,7 +157,7 @@ namespace AsyncSocket
 
                 // Signal that the connection has been made.
                 IsConnected = true;
-                Task.Run(() => ConnectEvent?.Invoke());
+                _ = Task.Run(() => ConnectEvent?.Invoke());
             }
             catch (Exception e)
             {
@@ -173,10 +172,10 @@ namespace AsyncSocket
             try
             {
                 // Create the state object.  
-                StateObject state = new StateObject();
+                var state = new StateObject();
 
                 // Begin receiving the data from the remote device.  
-                client.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
+                _ = client.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
                     new AsyncCallback(ReceiveCallback), state);
 
                 IsReceiving = true;
@@ -198,24 +197,24 @@ namespace AsyncSocket
 
                 // Retrieve the state object and the client socket
                 // from the asynchronous state object.  
-                StateObject state = (StateObject)ar.AsyncState;
+                var state = (StateObject)ar.AsyncState;
 
                 // Read data from the remote device.  
-                int bytesRead = client.EndReceive(ar);
+                var bytesRead = client.EndReceive(ar);
 
                 if (bytesRead > 0)
                 {
                     IsReceiving = true;
 
-                    string msg = Encoding.ASCII.GetString(state.buffer, 0, bytesRead);
+                    var msg = Encoding.ASCII.GetString(state.buffer, 0, bytesRead);
 
                     ReceiveEvent?.Invoke(state.buffer, msg);
 
                     Array.Clear(state.buffer, 0, StateObject.BufferSize);
 
                     // Get the rest of the data.  
-                    client?.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
-                        new AsyncCallback(ReceiveCallback), state);
+                    _ = (client?.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
+                        new AsyncCallback(ReceiveCallback), state));
                 }
                 else
                 {
@@ -240,11 +239,11 @@ namespace AsyncSocket
         {
             if (!IsConnected) return null;
 
-            Stopwatch stop = new Stopwatch();
+            var stop = new Stopwatch();
             stop.Restart();
             try
             {
-                byte[] byteData = new byte[1024];
+                var byteData = new byte[1024];
                 int readBytes;
 
                 while (stop.ElapsedMilliseconds < timeout)
@@ -267,11 +266,11 @@ namespace AsyncSocket
         {
             if (!IsConnected) return null;
 
-            Stopwatch stop = new Stopwatch();
+            var stop = new Stopwatch();
             stop.Restart();
             try
             {
-                byte[] byteData = new byte[1024];
+                var byteData = new byte[1024];
                 int readBytes;
 
                 while (stop.ElapsedMilliseconds < timeout)
@@ -294,12 +293,12 @@ namespace AsyncSocket
         {
             if (!IsConnected) return null;
 
-            Stopwatch stop = new Stopwatch();
+            var stop = new Stopwatch();
             stop.Restart();
             try
             {
-                byte[] byteData = new byte[4098];
-                StringBuilder sb = new StringBuilder();
+                var byteData = new byte[4098];
+                var sb = new StringBuilder();
                 int bytesRead;
                 while (stop.ElapsedMilliseconds < timeout)
                 {
@@ -310,7 +309,7 @@ namespace AsyncSocket
                         {
                             stop.Restart();
 
-                            sb.Append(Encoding.ASCII.GetString(byteData, 0, bytesRead));
+                            _ = sb.Append(Encoding.ASCII.GetString(byteData, 0, bytesRead));
 
                             if (sb.ToString().EndsWith(terminator))
                                 break;
@@ -330,18 +329,17 @@ namespace AsyncSocket
             }
         }
 
-
-        public void Send(String data)
+        public void Send(string data)
         {
             if (!IsConnected) return;
 
             try
             {
                 // Convert the string data to byte data using ASCII encoding.  
-                byte[] byteData = Encoding.ASCII.GetBytes(data);
+                var byteData = Encoding.ASCII.GetBytes(data);
 
                 // Begin sending the data to the remote device.  
-                client.Send(byteData);
+                _ = client.Send(byteData);
             }
             catch (Exception e)
             {
@@ -356,7 +354,7 @@ namespace AsyncSocket
             try
             {
                 // Begin sending the data to the remote device.  
-                client.Send(data);
+                _ = client.Send(data);
             }
             catch (Exception e)
             {
@@ -364,14 +362,13 @@ namespace AsyncSocket
             }
         }
 
-
-        private void StartSend(String data)
+        private void StartSend(string data)
         {
             // Convert the string data to byte data using ASCII encoding.  
-            byte[] byteData = Encoding.ASCII.GetBytes(data);
+            var byteData = Encoding.ASCII.GetBytes(data);
 
             // Begin sending the data to the remote device.  
-            client.BeginSend(byteData, 0, byteData.Length, 0,
+            _ = client.BeginSend(byteData, 0, byteData.Length, 0,
                 new AsyncCallback(SendCallback), client);
         }
 
@@ -380,10 +377,10 @@ namespace AsyncSocket
             try
             {
                 // Retrieve the socket from the state object.  
-                System.Net.Sockets.Socket client = (System.Net.Sockets.Socket)ar.AsyncState;
+                var client = (System.Net.Sockets.Socket)ar.AsyncState;
 
                 // Complete sending the data to the remote device.  
-                int bytesSent = client.EndSend(ar);
+                var bytesSent = client.EndSend(ar);
                 Console.WriteLine("Sent {0} bytes to server.", bytesSent);
 
                 // Signal that all bytes have been sent.  
@@ -402,7 +399,7 @@ namespace AsyncSocket
             // Detect if client disconnected
             if (client.Poll(0, SelectMode.SelectRead))
             {
-                byte[] buff = new byte[1];
+                var buff = new byte[1];
                 if (client.Receive(buff, SocketFlags.Peek) == 0)
                 {
                     // Client disconnected
@@ -415,6 +412,5 @@ namespace AsyncSocket
             }
             return true;
         }
-
     }
 }

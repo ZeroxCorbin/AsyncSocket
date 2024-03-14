@@ -1,8 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 
 namespace AsyncSocket
 {
@@ -21,7 +19,7 @@ namespace AsyncSocket
             MessageTerminator = terminator;
             UseRegex = false;
 
-            ReceiveData.Clear();
+            _ = ReceiveData.Clear();
             ReceiveEvent -= ASocketManager_ReceiveEvent;
             ReceiveEvent += ASocketManager_ReceiveEvent;
             StartReceive();
@@ -32,50 +30,50 @@ namespace AsyncSocket
             EndRegexPattern = endRegexPattern;
             UseRegex = true;
 
-            ReceiveData.Clear();
+            _ = ReceiveData.Clear();
 
             ReceiveEvent -= ASocketManager_ReceiveEvent;
             ReceiveEvent += ASocketManager_ReceiveEvent;
             StartReceive();
         }
-        StringBuilder ReceiveData = new StringBuilder();
 
-        object ReceiveLock = new object();
+        private StringBuilder ReceiveData = new StringBuilder();
+        private object ReceiveLock = new object();
 
         private void ASocketManager_ReceiveEvent(byte[] buffer, string msg)
         {
             lock (ReceiveLock)
             {
-                ReceiveData.Append(msg);
+                _ = ReceiveData.Append(msg);
 
                 if (!UseRegex)
                 {
                     if (ReceiveData.ToString().Contains(MessageTerminator))
                     {
-                        int last = 1;
+                        var last = 1;
                         if (ReceiveData.ToString().EndsWith(MessageTerminator))
                             last = 0;
 
-                        string[] spl = $"{ReceiveData}".Split(new string[1] { MessageTerminator }, StringSplitOptions.RemoveEmptyEntries);
-                        ReceiveData.Clear();
+                        var spl = $"{ReceiveData}".Split(new string[1] { MessageTerminator }, StringSplitOptions.RemoveEmptyEntries);
+                        _ = ReceiveData.Clear();
 
-                        int len = spl.Length - last;
+                        var len = spl.Length - last;
 
-                        for (int i = 0; i < len; i++)
+                        for (var i = 0; i < len; i++)
                         {
-                            string data = $"{spl[i]}{MessageTerminator}";
+                            var data = $"{spl[i]}{MessageTerminator}";
                             MessageEvent?.Invoke(data, null);
                         }
 
-                        if(last == 1)
-                            ReceiveData.Append(spl[len]);
+                        if (last == 1)
+                            _ = ReceiveData.Append(spl[len]);
                     }
                 }
                 else
                 {
-                    Regex reg = new Regex($"{StartRegexPattern}(?s)(.*?){EndRegexPattern}");
+                    var reg = new Regex($"{StartRegexPattern}(?s)(.*?){EndRegexPattern}");
 
-                    bool found = false;
+                    var found = false;
                     foreach (Match match in reg.Matches(ReceiveData.ToString()))
                     {
                         MessageEvent?.Invoke(match.Value, null);
@@ -83,11 +81,9 @@ namespace AsyncSocket
                     }
 
                     //This needs to be handled better. Could be clearing partial messages.
-                    if (found) ReceiveData.Clear();
+                    if (found) _ = ReceiveData.Clear();
                 }
-
             }
-
         }
     }
 }
