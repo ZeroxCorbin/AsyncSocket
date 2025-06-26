@@ -1,4 +1,5 @@
-﻿using System;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
+using System;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -8,6 +9,13 @@ using System.Threading.Tasks;
 
 namespace AsyncSocket
 {
+    public enum ASocketStates
+    {
+        Closed,
+        Trying,
+        Open,
+        Exception
+    }
 
     // State object for receiving data from remote device.  
     public class StateObject
@@ -21,36 +29,36 @@ namespace AsyncSocket
         // Received data string.  
         //public StringBuilder sb = new StringBuilder();
     }
-    public class ASocket
+    public partial class ASocket : ObservableObject
     {
-        public bool IsConnected { get; private set; } = false;
-        public bool IsReceiving { get; private set; } = false;
+        [ObservableProperty] private bool isReceiving = false;
+
+        [ObservableProperty] private ASocketStates state = ASocketStates.Closed;
+        [ObservableProperty] private Exception lastException;
 
         public delegate void SimpleDelegate();
         public delegate void ReceiveEventDelegate(byte[] buffer, string msg);
 
-        public event SimpleDelegate ConnectEvent;
-        public event SimpleDelegate CloseEvent;
         public event ReceiveEventDelegate ReceiveEvent;
         public event EventHandler ExceptionEvent;
 
-        private Socket client;
-        private Exception lastException;
+        private Socket _client;
+
 
         public bool GetException(out Exception exception)
         {
-            exception = lastException;
-            return lastException != null;
+            exception = LastException;
+            return LastException != null;
         }
 
         protected void HandleException(Exception e)
         {
             Console.WriteLine(e.ToString());
 
-            IsConnected = false;
+            State = ASocketStates.Exception;
             IsReceiving = false;
 
-            lastException = e;
+            LastException = e;
 
             Close();
 
@@ -67,27 +75,26 @@ namespace AsyncSocket
                 var remoteEP = new IPEndPoint(settings.IPAddress, settings.Port);
 
                 // Create a TCP/IP socket.  
-                client = new System.Net.Sockets.Socket(settings.IPAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                _client = new System.Net.Sockets.Socket(settings.IPAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
                 // Connect to the remote endpoint.  
-                var connectResult = client.BeginConnect(remoteEP, null, null);
+                IAsyncResult connectResult = _client.BeginConnect(remoteEP, null, null);
 
                 _ = connectResult.AsyncWaitHandle.WaitOne(timeout, true);
 
-                if (client == null) return false;
+                if (_client == null) return false;
 
-                if (client.Connected)
+                if (_client.Connected)
                 {
-                    client.EndConnect(connectResult);
+                    _client.EndConnect(connectResult);
 
-                    IsConnected = true;
-
-                    _ = Task.Run(() => ConnectEvent?.Invoke());
+                    State = ASocketStates.Open;
 
                     return true;
                 }
                 else
                 {
+                    State = ASocketStates.Closed;
                     throw new Exception("Connection timeout.");
                 }
             }
@@ -97,22 +104,19 @@ namespace AsyncSocket
                 return false;
             }
         }
-        public void Close(bool noEvent = false)
+        public void Close()
         {
-            IsConnected = false;
+            State = ASocketStates.Closed;
+            if (_client == null) return;
 
-            if (client == null) return;
+            if (_client.Connected)
+                _client.Shutdown(SocketShutdown.Both);
 
-            if (client.Connected)
-                client.Shutdown(SocketShutdown.Both);
 
-            if (client == null) return;
+            if (_client == null) return;
 
-            client.Close();
-            client = null;
-
-            if (!noEvent)
-                CloseEvent?.Invoke();
+            _client.Close();
+            _client = null;
         }
 
         public void StartConnect(string host, int port) => StartConnect(new ASocketSettings($"{host}:{port}"));
@@ -123,18 +127,18 @@ namespace AsyncSocket
             var remoteEP = new IPEndPoint(settings.IPAddress, settings.Port);
 
             // Create a TCP/IP socket.  
-            client = new System.Net.Sockets.Socket(settings.IPAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            _client = new System.Net.Sockets.Socket(settings.IPAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
             // Connect to the remote endpoint.  
-            _ = client.BeginConnect(remoteEP, new AsyncCallback(ConnectCallback), client);
+            _ = _client.BeginConnect(remoteEP, new AsyncCallback(ConnectCallback), _client);
         }
         public void CancelConnect()
         {
-            if (client == null) return;
+            if (_client == null) return;
 
-            if (!client.Connected)
+            if (!_client.Connected)
             {
-                Close(true);
+                Close();
             }
         }
         private void ConnectCallback(IAsyncResult ar)
@@ -143,21 +147,19 @@ namespace AsyncSocket
             {
                 // Retrieve the socket from the state object.  
                 // Socket client = (Socket)ar.AsyncState;
-                if (client == null)
+                if (_client == null)
                 {
-                    IsConnected = false;
+                    State = ASocketStates.Closed;
                     return;
                 }
 
                 // Complete the connection.  
-                client.EndConnect(ar);
+                _client.EndConnect(ar);
 
                 Console.WriteLine("Socket connected to {0}",
-                    client.RemoteEndPoint.ToString());
+                    _client.RemoteEndPoint.ToString());
 
-                // Signal that the connection has been made.
-                IsConnected = true;
-                _ = Task.Run(() => ConnectEvent?.Invoke());
+                State = ASocketStates.Open;
             }
             catch (Exception e)
             {
@@ -167,7 +169,7 @@ namespace AsyncSocket
 
         public void StartReceive()
         {
-            if (!IsConnected) return;
+            if (State != ASocketStates.Open) return;
 
             try
             {
@@ -175,7 +177,7 @@ namespace AsyncSocket
                 var state = new StateObject();
 
                 // Begin receiving the data from the remote device.  
-                _ = client.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
+                _ = _client.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
                     new AsyncCallback(ReceiveCallback), state);
 
                 IsReceiving = true;
@@ -189,7 +191,7 @@ namespace AsyncSocket
         {
             try
             {
-                if (client == null)
+                if (_client == null)
                 {
                     IsReceiving = false;
                     return;
@@ -200,7 +202,7 @@ namespace AsyncSocket
                 var state = (StateObject)ar.AsyncState;
 
                 // Read data from the remote device.  
-                var bytesRead = client.EndReceive(ar);
+                var bytesRead = _client.EndReceive(ar);
 
                 if (bytesRead > 0)
                 {
@@ -213,7 +215,7 @@ namespace AsyncSocket
                     Array.Clear(state.buffer, 0, StateObject.BufferSize);
 
                     // Get the rest of the data.  
-                    _ = (client?.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
+                    _ = (_client?.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
                         new AsyncCallback(ReceiveCallback), state));
                 }
                 else
@@ -224,9 +226,7 @@ namespace AsyncSocket
             }
             catch (ObjectDisposedException)
             {
-                IsConnected = false;
                 IsReceiving = false;
-
                 Close();
             }
             catch (Exception e)
@@ -237,7 +237,7 @@ namespace AsyncSocket
 
         public byte[] ReceiveBytes(int timeout)
         {
-            if (!IsConnected) return null;
+            if (State != ASocketStates.Open) return null;
 
             var stop = new Stopwatch();
             stop.Restart();
@@ -248,8 +248,8 @@ namespace AsyncSocket
 
                 while (stop.ElapsedMilliseconds < timeout)
                 {
-                    if (client.Available > 0)
-                        if ((readBytes = client.Receive(byteData)) > 0)
+                    if (_client.Available > 0)
+                        if ((readBytes = _client.Receive(byteData)) > 0)
                             return byteData;
                 }
 
@@ -264,7 +264,7 @@ namespace AsyncSocket
 
         public string Receive(int timeout)
         {
-            if (!IsConnected) return null;
+            if (State != ASocketStates.Open) return null;
 
             var stop = new Stopwatch();
             stop.Restart();
@@ -275,8 +275,8 @@ namespace AsyncSocket
 
                 while (stop.ElapsedMilliseconds < timeout)
                 {
-                    if (client.Available > 0)
-                        if ((readBytes = client.Receive(byteData)) > 0)
+                    if (_client.Available > 0)
+                        if ((readBytes = _client.Receive(byteData)) > 0)
                             return System.Text.Encoding.UTF8.GetString(byteData, 0, readBytes);
                 }
 
@@ -291,7 +291,7 @@ namespace AsyncSocket
 
         public string Receive(int timeout, string terminator)
         {
-            if (!IsConnected) return null;
+            if (State != ASocketStates.Open) return null;
 
             var stop = new Stopwatch();
             stop.Restart();
@@ -302,10 +302,10 @@ namespace AsyncSocket
                 int bytesRead;
                 while (stop.ElapsedMilliseconds < timeout)
                 {
-                    if (client.Available > 0)
+                    if (_client.Available > 0)
                     {
                         //Array.Clear(byteData, 0, byteData.Length);
-                        if ((bytesRead = client.Receive(byteData)) > 0)
+                        if ((bytesRead = _client.Receive(byteData)) > 0)
                         {
                             stop.Restart();
 
@@ -331,7 +331,7 @@ namespace AsyncSocket
 
         public void Send(string data)
         {
-            if (!IsConnected) return;
+            if (State != ASocketStates.Open) return;
 
             try
             {
@@ -339,7 +339,7 @@ namespace AsyncSocket
                 var byteData = Encoding.ASCII.GetBytes(data);
 
                 // Begin sending the data to the remote device.  
-                _ = client.Send(byteData);
+                _ = _client.Send(byteData);
             }
             catch (Exception e)
             {
@@ -349,12 +349,12 @@ namespace AsyncSocket
 
         public void Send(byte[] data)
         {
-            if (!IsConnected) return;
+            if (State != ASocketStates.Open) return;
 
             try
             {
                 // Begin sending the data to the remote device.  
-                _ = client.Send(data);
+                _ = _client.Send(data);
             }
             catch (Exception e)
             {
@@ -368,8 +368,8 @@ namespace AsyncSocket
             var byteData = Encoding.ASCII.GetBytes(data);
 
             // Begin sending the data to the remote device.  
-            _ = client.BeginSend(byteData, 0, byteData.Length, 0,
-                new AsyncCallback(SendCallback), client);
+            _ = _client.BeginSend(byteData, 0, byteData.Length, 0,
+                new AsyncCallback(SendCallback), _client);
         }
 
         private void SendCallback(IAsyncResult ar)
@@ -394,13 +394,13 @@ namespace AsyncSocket
 
         private bool DetectConnection()
         {
-            if (client == null) return false;
+            if (_client == null) return false;
 
             // Detect if client disconnected
-            if (client.Poll(0, SelectMode.SelectRead))
+            if (_client.Poll(0, SelectMode.SelectRead))
             {
                 var buff = new byte[1];
-                if (client.Receive(buff, SocketFlags.Peek) == 0)
+                if (_client.Receive(buff, SocketFlags.Peek) == 0)
                 {
                     // Client disconnected
                     return false;

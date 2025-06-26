@@ -1,10 +1,11 @@
-﻿using System;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
+using System;
 using System.Text;
 using System.Text.RegularExpressions;
 
 namespace AsyncSocket
 {
-    public class ASocketManager : ASocket
+    public partial class ASocketManager : ASocket
     {
         public event EventHandler MessageEvent;
 
