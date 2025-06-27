@@ -7,7 +7,8 @@ namespace AsyncSocket
 {
     public partial class ASocketManager : ASocket
     {
-        public event EventHandler MessageEvent;
+        public delegate void MessageEventHandler(string message);
+        public event MessageEventHandler MessageEvent;
 
         [ObservableProperty] private string message;
 
@@ -72,9 +73,8 @@ namespace AsyncSocket
 
                         for (var i = 0; i < len; i++)
                         {
-                            var data = $"{spl[i]}{_messageTerminator}";
-                            Message = data;
-                            MessageEvent?.Invoke(data, null);
+                            Message = spl[i];
+                            MessageEvent?.Invoke(spl[i]);
                         }
 
                         if (last == 1)
@@ -88,7 +88,7 @@ namespace AsyncSocket
                     var found = false;
                     foreach (Match match in reg.Matches(_receiveData.ToString()))
                     {
-                        MessageEvent?.Invoke(match.Value, null);
+                        MessageEvent?.Invoke(match.Value);
                         Message = match.Value;
                         found = true;
                     }
