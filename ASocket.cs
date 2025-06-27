@@ -1,4 +1,5 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
+using Logging.lib;
 using System;
 using System.Diagnostics;
 using System.Net;
@@ -32,6 +33,7 @@ namespace AsyncSocket
     public partial class ASocket : ObservableObject
     {
         [ObservableProperty] private bool isReceiving = false;
+        [ObservableProperty] private bool isListener = false;
 
         [ObservableProperty] private ASocketStates state = ASocketStates.Closed;
         [ObservableProperty] private Exception lastException;
@@ -44,7 +46,6 @@ namespace AsyncSocket
 
         private Socket _client;
 
-
         public bool GetException(out Exception exception)
         {
             exception = LastException;
@@ -53,7 +54,7 @@ namespace AsyncSocket
 
         protected void HandleException(Exception e)
         {
-            Console.WriteLine(e.ToString());
+            Logger.LogError(e);
 
             State = ASocketStates.Exception;
             IsReceiving = false;
@@ -72,6 +73,8 @@ namespace AsyncSocket
 
             try
             {
+                IsListener = false;
+
                 var remoteEP = new IPEndPoint(settings.IPAddress, settings.Port);
 
                 // Create a TCP/IP socket.  
@@ -94,7 +97,6 @@ namespace AsyncSocket
                 }
                 else
                 {
-                    State = ASocketStates.Closed;
                     throw new Exception("Connection timeout.");
                 }
             }
@@ -104,6 +106,55 @@ namespace AsyncSocket
                 return false;
             }
         }
+
+        public bool Listen(string host, int port, int backlog = 10)
+        {
+            //Start listening for incoming connections
+            Close();
+            try
+            {
+                IsListener = true;
+                var localEP = new IPEndPoint(IPAddress.Parse(host), port);
+                // Create a TCP/IP socket.  
+                _client = new System.Net.Sockets.Socket(localEP.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                // Bind the socket to the local endpoint and listen for incoming connections.  
+                _client.Bind(localEP);
+                _client.Listen(backlog);
+                State = ASocketStates.Open;
+
+                // Accept an incoming connection asynchronously.
+                _ = _client.BeginAccept(new AsyncCallback(AcceptCallback), null);
+                return true;
+            }
+            catch (Exception e)
+            {
+                HandleException(e);
+                return false;
+            }
+        }
+
+        private void AcceptCallback(IAsyncResult ar)
+        {
+            try
+            {
+                // Retrieve the socket from the state object.  
+                if (_client == null) return;
+                // Create a new socket to handle the connection.  
+                Socket handler = _client.EndAccept(ar);
+                Console.WriteLine("Socket accepted from {0}", handler.RemoteEndPoint.ToString());
+                // Start receiving data on the new socket.
+                var state = new StateObject
+                {
+                    buffer = new byte[StateObject.BufferSize]
+                };
+                _ = handler.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
+                    new AsyncCallback(ReceiveCallback), state);
+            }
+            catch (Exception e)
+            {
+                HandleException(e);
+            }
+        }
         public void Close()
         {
             State = ASocketStates.Closed;
@@ -111,7 +162,6 @@ namespace AsyncSocket
 
             if (_client.Connected)
                 _client.Shutdown(SocketShutdown.Both);
-
 
             if (_client == null) return;
 
@@ -224,10 +274,9 @@ namespace AsyncSocket
                     IsReceiving = false;
                 }
             }
-            catch (ObjectDisposedException)
+            catch (ObjectDisposedException e1)
             {
-                IsReceiving = false;
-                Close();
+                HandleException(e1);
             }
             catch (Exception e)
             {

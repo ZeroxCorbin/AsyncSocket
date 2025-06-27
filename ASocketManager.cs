@@ -9,80 +9,92 @@ namespace AsyncSocket
     {
         public event EventHandler MessageEvent;
 
-        private string MessageTerminator = string.Empty;
-        private string StartRegexPattern = string.Empty;
-        private string EndRegexPattern = string.Empty;
+        [ObservableProperty] private string message;
 
-        private bool UseRegex;
+        private string _messageTerminator = string.Empty;
+        private string _startRegexPattern = string.Empty;
+        private string _endRegexPattern = string.Empty;
+
+        private bool _useRegex;
+
+        private StringBuilder _receiveData = new StringBuilder();
+        private object _receiveLock = new object();
 
         public void StartReceiveMessages(string terminator)
         {
-            MessageTerminator = terminator;
-            UseRegex = false;
+            _messageTerminator = terminator;
+            _useRegex = false;
 
-            _ = ReceiveData.Clear();
+            _ = _receiveData.Clear();
             ReceiveEvent -= ASocketManager_ReceiveEvent;
             ReceiveEvent += ASocketManager_ReceiveEvent;
             StartReceive();
         }
         public void StartReceiveMessages(string startRegexPattern, string endRegexPattern)
         {
-            StartRegexPattern = startRegexPattern;
-            EndRegexPattern = endRegexPattern;
-            UseRegex = true;
+            _startRegexPattern = startRegexPattern;
+            _endRegexPattern = endRegexPattern;
+            _useRegex = true;
 
-            _ = ReceiveData.Clear();
+            _ = _receiveData.Clear();
 
             ReceiveEvent -= ASocketManager_ReceiveEvent;
             ReceiveEvent += ASocketManager_ReceiveEvent;
             StartReceive();
         }
 
-        private StringBuilder ReceiveData = new StringBuilder();
-        private object ReceiveLock = new object();
+        public void StopReceiveMessages()
+        {
+            ReceiveEvent -= ASocketManager_ReceiveEvent;
+
+            lock (_receiveLock)
+                _ = _receiveData.Clear();
+        }
 
         private void ASocketManager_ReceiveEvent(byte[] buffer, string msg)
         {
-            lock (ReceiveLock)
+            lock (_receiveLock)
             {
-                _ = ReceiveData.Append(msg);
+                _ = _receiveData.Append(msg);
 
-                if (!UseRegex)
+                if (!_useRegex)
                 {
-                    if (ReceiveData.ToString().Contains(MessageTerminator))
+                    if (_receiveData.ToString().Contains(_messageTerminator))
                     {
                         var last = 1;
-                        if (ReceiveData.ToString().EndsWith(MessageTerminator))
+                        if (_receiveData.ToString().EndsWith(_messageTerminator))
                             last = 0;
 
-                        var spl = $"{ReceiveData}".Split(new string[1] { MessageTerminator }, StringSplitOptions.RemoveEmptyEntries);
-                        _ = ReceiveData.Clear();
+                        var spl = $"{_receiveData}".Split(new string[1] { _messageTerminator }, StringSplitOptions.RemoveEmptyEntries);
+                        _ = _receiveData.Clear();
 
                         var len = spl.Length - last;
 
                         for (var i = 0; i < len; i++)
                         {
-                            var data = $"{spl[i]}{MessageTerminator}";
+                            var data = $"{spl[i]}{_messageTerminator}";
+                            Message = data;
                             MessageEvent?.Invoke(data, null);
                         }
 
                         if (last == 1)
-                            _ = ReceiveData.Append(spl[len]);
+                            _ = _receiveData.Append(spl[len]);
                     }
                 }
                 else
                 {
-                    var reg = new Regex($"{StartRegexPattern}(?s)(.*?){EndRegexPattern}");
+                    var reg = new Regex($"{_startRegexPattern}(?s)(.*?){_endRegexPattern}");
 
                     var found = false;
-                    foreach (Match match in reg.Matches(ReceiveData.ToString()))
+                    foreach (Match match in reg.Matches(_receiveData.ToString()))
                     {
                         MessageEvent?.Invoke(match.Value, null);
+                        Message = match.Value;
                         found = true;
                     }
 
                     //This needs to be handled better. Could be clearing partial messages.
-                    if (found) _ = ReceiveData.Clear();
+                    if (found) _ = _receiveData.Clear();
                 }
             }
         }

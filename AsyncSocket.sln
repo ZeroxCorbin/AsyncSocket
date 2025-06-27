@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AsyncSocket", "AsyncSocket.csproj", "{59F701F3-F83D-4D12-84B2-72DE1F6C3398}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Logging.lib", "..\Logging.lib\Logging.lib.csproj", "{7855907A-12BC-FFEC-1DB8-E561F1329886}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,14 @@ Global
 		{59F701F3-F83D-4D12-84B2-72DE1F6C3398}.Release|Any CPU.Build.0 = Release|Any CPU
 		{59F701F3-F83D-4D12-84B2-72DE1F6C3398}.Release|x64.ActiveCfg = Release|x64
 		{59F701F3-F83D-4D12-84B2-72DE1F6C3398}.Release|x64.Build.0 = Release|x64
+		{7855907A-12BC-FFEC-1DB8-E561F1329886}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7855907A-12BC-FFEC-1DB8-E561F1329886}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7855907A-12BC-FFEC-1DB8-E561F1329886}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7855907A-12BC-FFEC-1DB8-E561F1329886}.Debug|x64.Build.0 = Debug|Any CPU
+		{7855907A-12BC-FFEC-1DB8-E561F1329886}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7855907A-12BC-FFEC-1DB8-E561F1329886}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7855907A-12BC-FFEC-1DB8-E561F1329886}.Release|x64.ActiveCfg = Release|Any CPU
+		{7855907A-12BC-FFEC-1DB8-E561F1329886}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
