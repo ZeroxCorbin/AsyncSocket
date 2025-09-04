@@ -51,7 +51,7 @@ namespace AsyncSocket
 
         protected void HandleException(Exception e)
         {
-            Logger.LogError(e);
+            Logger.Error(e);
 
             State = ASocketStates.Exception;
             IsReceiving = false;
