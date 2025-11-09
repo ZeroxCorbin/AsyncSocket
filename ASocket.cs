@@ -2,6 +2,8 @@
 using Logging.lib;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -23,7 +25,7 @@ namespace AsyncSocket
     {
         public const int BufferSize = 4096;
         public byte[] buffer = new byte[BufferSize];
-        public Socket WorkSocket;
+        public Socket? WorkSocket;
     }
     
     public partial class ASocket : ObservableObject
@@ -32,18 +34,21 @@ namespace AsyncSocket
         [ObservableProperty] private bool isListener = false;
 
         [ObservableProperty] private ASocketStates state = ASocketStates.Closed;
-        [ObservableProperty] private Exception lastException;
+        [ObservableProperty] private Exception? lastException;
 
         public delegate void SimpleDelegate();
         public delegate void ReceiveEventDelegate(byte[] buffer, string msg);
 
-        public event ReceiveEventDelegate ReceiveEvent;
-        public event EventHandler ExceptionEvent;
+        public event ReceiveEventDelegate? ReceiveEvent;
+        public event EventHandler? ExceptionEvent;
 
-        private Socket _client; // Used as the listening socket in listener mode
-        private Socket _acceptedClient; // Only one client allowed at a time
+        private Socket? _client; // Used as the listening socket in listener mode
+        private readonly ConcurrentDictionary<Socket, StateObject> _clients = new ConcurrentDictionary<Socket, StateObject>();
+        private int _maxClients = 1;
 
-        public bool GetException(out Exception exception)
+        public ReadOnlyCollection<Socket> Clients => new List<Socket>(_clients.Keys).AsReadOnly();
+
+        public bool GetException(out Exception? exception)
         {
             exception = LastException;
             return LastException != null;
@@ -62,11 +67,12 @@ namespace AsyncSocket
 
             _ = Task.Run(() => ExceptionEvent?.Invoke(e, null));
         }
-        public bool Listen(string host, int port, int backlog = 10)
+        public bool Listen(string host, int port, int maxClients = 1, int backlog = 10)
         {
             Close();
             try
             {
+                _maxClients = maxClients;
                 IsListener = true;
                 var localEP = new IPEndPoint(IPAddress.Parse(host), port);
                 _client = new Socket(localEP.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -90,29 +96,16 @@ namespace AsyncSocket
             {
                 try
                 {
+                    if (_clients.Count >= _maxClients)
+                    {
+                        Thread.Sleep(100); // Max clients reached, wait a bit before checking again
+                        continue;
+                    }
+
                     var acceptResult = _client.BeginAccept(null, null);
                     acceptResult.AsyncWaitHandle.WaitOne();
                     if (_client == null) break;
                     Socket handler = _client.EndAccept(acceptResult);
-
-                    // Disconnect previous client if exists
-                    if (_acceptedClient != null)
-                    {
-                        try
-                        {
-                            if (_acceptedClient.Connected)
-                                _acceptedClient.Shutdown(SocketShutdown.Both);
-                        }
-                        catch { }
-                        try
-                        {
-                            _acceptedClient.Close();
-                        }
-                        catch { }
-                        _acceptedClient = null;
-                    }
-
-                    _acceptedClient = handler;
 
                     Console.WriteLine("Socket accepted from {0}", handler.RemoteEndPoint.ToString());
 
@@ -121,8 +114,17 @@ namespace AsyncSocket
                         buffer = new byte[StateObject.BufferSize],
                         WorkSocket = handler
                     };
-                    _ = handler.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
-                        new AsyncCallback(ReceiveCallback), state);
+
+                    if (_clients.TryAdd(handler, state))
+                    {
+                        _ = handler.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
+                            new AsyncCallback(ReceiveCallback), state);
+                    }
+                    else
+                    {
+                        // Should not happen if logic is correct
+                        handler.Close();
+                    }
                 }
                 catch (ObjectDisposedException)
                 {
@@ -152,21 +154,21 @@ namespace AsyncSocket
                 _client = null;
             }
 
-            if (_acceptedClient != null)
+            foreach (var client in _clients.Keys)
             {
                 try
                 {
-                    if (_acceptedClient.Connected)
-                        _acceptedClient.Shutdown(SocketShutdown.Both);
+                    if (client.Connected)
+                        client.Shutdown(SocketShutdown.Both);
                 }
                 catch { }
                 try
                 {
-                    _acceptedClient.Close();
+                    client.Close();
                 }
                 catch { }
-                _acceptedClient = null;
             }
+            _clients.Clear();
         }
         public void CancelConnect()
         {
@@ -201,8 +203,9 @@ namespace AsyncSocket
                 {
                     _client.EndConnect(connectResult);
 
-                    // Assign the connected socket to _acceptedClient
-                    _acceptedClient = _client;
+                    // In client mode, we still use _clients, but it will only have one
+                    var state = new StateObject { WorkSocket = _client };
+                    _clients.TryAdd(_client, state);
 
                     State = ASocketStates.Open;
 
@@ -245,7 +248,8 @@ namespace AsyncSocket
                 _client.EndConnect(ar);
 
                 // Assign the connected socket to _acceptedClient
-                _acceptedClient = _client;
+                var state = new StateObject { WorkSocket = _client };
+                _clients.TryAdd(_client, state);
 
                 Console.WriteLine("Socket connected to {0}",
                     _client.RemoteEndPoint.ToString());
@@ -264,13 +268,17 @@ namespace AsyncSocket
 
             try
             {
-                var state = new StateObject
+                // In client mode, there's one socket. In server mode, this will start receiving on all sockets.
+                foreach (var client in _clients.Values)
                 {
-                    WorkSocket = _acceptedClient
-                };
+                    var state = new StateObject
+                    {
+                        WorkSocket = client.WorkSocket
+                    };
 
-                _ = _acceptedClient.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
-                    new AsyncCallback(ReceiveCallback), state);
+                    _ = client.WorkSocket?.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0,
+                        new AsyncCallback(ReceiveCallback), state);
+                }
 
                 IsReceiving = true;
             }
@@ -283,7 +291,7 @@ namespace AsyncSocket
         private void ReceiveCallback(IAsyncResult ar)
         {
             StateObject state = (StateObject)ar.AsyncState;
-            Socket handler = state.WorkSocket ?? _acceptedClient;
+            Socket? handler = state.WorkSocket;
 
             try
             {
@@ -311,9 +319,16 @@ namespace AsyncSocket
                 }
                 else
                 {
-                    handler.Shutdown(SocketShutdown.Both);
-                    handler.Close();
-                    IsReceiving = false;
+                    // Client disconnected
+                    if (_clients.TryRemove(handler, out _))
+                    {
+                        handler.Shutdown(SocketShutdown.Both);
+                        handler.Close();
+                    }
+                    if (_clients.IsEmpty)
+                    {
+                        IsReceiving = false;
+                    }
                 }
             }
             catch (ObjectDisposedException e1)
@@ -322,13 +337,20 @@ namespace AsyncSocket
             }
             catch (Exception e)
             {
+                if (handler != null && _clients.TryRemove(handler, out _))
+                {
+                    handler.Close();
+                }
                 HandleException(e);
             }
         }
 
         public byte[] ReceiveBytes(int timeout)
         {
-            if (State != ASocketStates.Open) return null;
+            if (State != ASocketStates.Open || _clients.IsEmpty) return [];
+
+            var client = _clients.Keys.FirstOrDefault(); // Only receives from the first client
+            if (client == null) return [];
 
             var stop = new Stopwatch();
             stop.Restart();
@@ -339,8 +361,8 @@ namespace AsyncSocket
 
                 while (stop.ElapsedMilliseconds < timeout)
                 {
-                    if (_acceptedClient != null && _acceptedClient.Available > 0)
-                        if ((readBytes = _acceptedClient.Receive(byteData)) > 0)
+                    if (client.Available > 0)
+                        if ((readBytes = client.Receive(byteData)) > 0)
                             return byteData;
                 }
 
@@ -349,13 +371,16 @@ namespace AsyncSocket
             catch (Exception e)
             {
                 HandleException(e);
-                return null;
+                return [];
             }
         }
 
-        public string Receive(int timeout)
+        public string? Receive(int timeout)
         {
-            if (State != ASocketStates.Open) return null;
+            if (State != ASocketStates.Open || _clients.IsEmpty) return null;
+
+            var client = _clients.Keys.FirstOrDefault(); // Only receives from the first client
+            if (client == null) return null;
 
             var stop = new Stopwatch();
             stop.Restart();
@@ -366,8 +391,8 @@ namespace AsyncSocket
 
                 while (stop.ElapsedMilliseconds < timeout)
                 {
-                    if (_acceptedClient != null && _acceptedClient.Available > 0)
-                        if ((readBytes = _acceptedClient.Receive(byteData)) > 0)
+                    if (client.Available > 0)
+                        if ((readBytes = client.Receive(byteData)) > 0)
                             return System.Text.Encoding.UTF8.GetString(byteData, 0, readBytes);
                 }
 
@@ -380,9 +405,12 @@ namespace AsyncSocket
             }
         }
 
-        public string Receive(int timeout, string terminator)
+        public string? Receive(int timeout, string terminator)
         {
-            if (State != ASocketStates.Open) return null;
+            if (State != ASocketStates.Open || _clients.IsEmpty) return null;
+
+            var client = _clients.Keys.FirstOrDefault(); // Only receives from the first client
+            if (client == null) return null;
 
             var stop = new Stopwatch();
             stop.Restart();
@@ -393,9 +421,9 @@ namespace AsyncSocket
                 int bytesRead;
                 while (stop.ElapsedMilliseconds < timeout)
                 {
-                    if (_acceptedClient != null && _acceptedClient.Available > 0)
+                    if (client.Available > 0)
                     {
-                        if ((bytesRead = _acceptedClient.Receive(byteData)) > 0)
+                        if ((bytesRead = client.Receive(byteData)) > 0)
                         {
                             stop.Restart();
 
@@ -422,26 +450,32 @@ namespace AsyncSocket
         public void Send(string data)
         {
             if (State != ASocketStates.Open) return;
-
-            try
-            {
-                var byteData = Encoding.ASCII.GetBytes(data);
-
-                _ = _acceptedClient.Send(byteData);
-            }
-            catch (Exception e)
-            {
-                HandleException(e);
-            }
+            var byteData = Encoding.ASCII.GetBytes(data);
+            Send(byteData);
         }
 
         public void Send(byte[] data)
         {
             if (State != ASocketStates.Open) return;
+            // This method now broadcasts to all clients.
+            Broadcast(data);
+        }
+
+        public void Send(Socket client, string data)
+        {
+            if (State != ASocketStates.Open) return;
+            var byteData = Encoding.ASCII.GetBytes(data);
+            Send(client, byteData);
+        }
+
+        public void Send(Socket client, byte[] data)
+        {
+            if (State != ASocketStates.Open) return;
+            if (!_clients.ContainsKey(client)) return;
 
             try
             {
-                _ = _acceptedClient.Send(data);
+                _ = client.Send(data);
             }
             catch (Exception e)
             {
@@ -449,12 +483,40 @@ namespace AsyncSocket
             }
         }
 
+        public void Broadcast(string data)
+        {
+            if (State != ASocketStates.Open) return;
+            var byteData = Encoding.ASCII.GetBytes(data);
+            Broadcast(byteData);
+        }
+
+        public void Broadcast(byte[] data)
+        {
+            if (State != ASocketStates.Open) return;
+            foreach (var client in _clients.Keys)
+            {
+                try
+                {
+                    _ = client.Send(data);
+                }
+                catch (Exception e)
+                {
+                    // Log per-client send exception, but don't tear down everything
+                    Logger.Error($"Failed to send to client {client.RemoteEndPoint}: {e.Message}");
+                }
+            }
+        }
+
         private void StartSend(string data)
         {
+            // This method is ambiguous in multi-client scenario.
+            // Let's make it broadcast.
             var byteData = Encoding.ASCII.GetBytes(data);
-
-            _ = _acceptedClient.BeginSend(byteData, 0, byteData.Length, 0,
-                new AsyncCallback(SendCallback), _acceptedClient);
+            foreach (var client in _clients.Keys)
+            {
+                _ = client.BeginSend(byteData, 0, byteData.Length, 0,
+                    new AsyncCallback(SendCallback), client);
+            }
         }
 
         private void SendCallback(IAsyncResult ar)
@@ -474,12 +536,17 @@ namespace AsyncSocket
 
         private bool DetectConnection()
         {
-            if (_acceptedClient == null) return false;
+            if (_clients.IsEmpty) return false;
 
-            if (_acceptedClient.Poll(0, SelectMode.SelectRead))
+            // This check is ambiguous in a multi-client scenario.
+            // Checking the first client for simplicity.
+            var client = _clients.Keys.FirstOrDefault();
+            if (client == null) return false;
+
+            if (client.Poll(0, SelectMode.SelectRead))
             {
                 var buff = new byte[1];
-                if (_acceptedClient.Receive(buff, SocketFlags.Peek) == 0)
+                if (client.Receive(buff, SocketFlags.Peek) == 0)
                 {
                     return false;
                 }

@@ -8,9 +8,9 @@ namespace AsyncSocket
     public partial class ASocketManager : ASocket
     {
         public delegate void MessageEventHandler(string message);
-        public event MessageEventHandler MessageEvent;
+        public event MessageEventHandler? MessageEvent;
 
-        [ObservableProperty] private string message;
+        [ObservableProperty] private string? message;
 
         private string _messageTerminator = string.Empty;
         private string _startRegexPattern = string.Empty;
