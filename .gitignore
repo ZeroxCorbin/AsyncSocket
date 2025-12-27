@@ -361,3 +361,16 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+/.idea/.idea.LabelVal/.idea
+/LabelVal/Assets/_Working
+/LabelVal/opencv_core2412.dll
+/LabelVal/opencv_highgui2412.dll
+*.diagsession
+/LVS_Software/LVS-95XX.frm
+/LVS_Software/LVS-95XX.frx
+/LVS_Software/LVS-95XX.h
+/.amazonq/rules
+/.amazonq/rules/00-CRITICAL.md
+
+# Version marker file (DynamicVersion.targets)
+version.marker
