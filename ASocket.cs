@@ -330,29 +330,32 @@ namespace AsyncSocket
                 }
                 else
                 {
-                    // Client disconnected
+                    // Client disconnected gracefully
                     if (_clients.TryRemove(handler, out _))
                     {
-                        handler.Shutdown(SocketShutdown.Both);
-                        handler.Close();
+                        try { handler.Shutdown(SocketShutdown.Both); } catch { }
+                        try { handler.Close(); } catch { }
                     }
                     if (_clients.IsEmpty)
-                    {
                         IsReceiving = false;
-                    }
                 }
             }
-            catch (ObjectDisposedException e1)
+            catch (ObjectDisposedException)
             {
-                HandleException(e1);
+                // Socket was closed externally - clean up this client only
+                if (handler != null && _clients.TryRemove(handler, out _))
+                    try { handler.Close(); } catch { }
+                if (_clients.IsEmpty)
+                    IsReceiving = false;
             }
             catch (Exception e)
             {
+                // Per-client error - clean up this client only, do not tear down the listener
                 if (handler != null && _clients.TryRemove(handler, out _))
-                {
-                    handler.Close();
-                }
-                HandleException(e);
+                    try { handler.Close(); } catch { }
+                if (_clients.IsEmpty)
+                    IsReceiving = false;
+                Logger.Error($"ReceiveCallback client error: {e.Message}");
             }
         }
 
