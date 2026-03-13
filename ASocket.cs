@@ -98,8 +98,19 @@ namespace AsyncSocket
                 {
                     if (_clients.Count >= _maxClients)
                     {
-                        Thread.Sleep(100); // Max clients reached, wait a bit before checking again
-                        continue;
+                        // Drop oldest connection to make room for new client
+                        var oldestClient = _clients.Keys.FirstOrDefault();
+                        if (oldestClient != null && _clients.TryRemove(oldestClient, out _))
+                        {
+                            try
+                            {
+                                if (oldestClient.Connected)
+                                    oldestClient.Shutdown(SocketShutdown.Both);
+                                oldestClient.Close();
+                                Logger.Info($"Dropped old client connection from {oldestClient.RemoteEndPoint} to accept new client");
+                            }
+                            catch { }
+                        }
                     }
 
                     var acceptResult = _client.BeginAccept(null, null);
